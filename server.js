@@ -10,15 +10,7 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 // Update CORS configuration
-app.use(cors({
-    origin: [
-        'https://webflow-downloader.webflow.io/',  // Your Webflow domain
-        'http://localhost:3000'  // For local testing
-    ],
-    methods: ['POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type'],
-    credentials: true
-}));
+app.use(cors({ origin: "https://webflow-downloader.webflow.io" }));
 
 
 
@@ -34,7 +26,7 @@ if (!fs.existsSync(TEMP_DIR)) {
 
 app.post('/api/extract', async (req, res) => {
     let tempDir = null;
-    
+    res.json({ message: "CORS fixed!" });
     try {
         const targetUrl = req.body.url;
         if (!isValidWebflowUrl(targetUrl)) {
