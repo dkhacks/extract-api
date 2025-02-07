@@ -25,7 +25,6 @@ if (!fs.existsSync(TEMP_DIR)) {
 
 app.post('/api/extract', async (req, res) => {
     let tempDir = null;
-    res.json({ message: "CORS fixed!" });
     try {
         const targetUrl = req.body.url;
         if (!isValidWebflowUrl(targetUrl)) {
