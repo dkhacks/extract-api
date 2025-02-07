@@ -10,8 +10,22 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 // Update CORS configuration
-app.use(cors());
+app.use(cors({
+    origin: '*',  // Allow all origins for now
+    methods: ['POST', 'GET', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition', 'Content-Type'],
+    credentials: false  // Changed to false
+}));
 
+// Add OPTIONS handling
+app.options('/api/extract', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+    res.status(200).end();
+});
 
 // Constants
 const MAX_CONCURRENT_DOWNLOADS = 10;
