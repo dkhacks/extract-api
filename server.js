@@ -10,8 +10,13 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 // Update CORS configuration
-app.use(cors({ origin: "https://webflow-downloader.webflow.io" }));
-
+app.use(cors({
+    origin: '*',  // Allow all origins for now
+    methods: ['POST', 'GET', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition', 'Content-Type'],
+    credentials: false  // Changed to false
+}));
 
 
 // Constants
@@ -23,7 +28,14 @@ const TEMP_DIR = path.join(__dirname, 'temp');
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR);
 }
-
+// Add OPTIONS handling
+app.options('/api/extract', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+    res.status(200).end();
+});
 app.post('/api/extract', async (req, res) => {
     let tempDir = null;
     res.json({ message: "CORS fixed!" });
