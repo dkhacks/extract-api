@@ -12,7 +12,7 @@ const app = express();
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(cors({
-    origin: '*',  // Allow all origins
+    origin: '*',
     methods: ['POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type']
 }));
@@ -20,6 +20,7 @@ app.use(cors({
 // Constants
 const MAX_CONCURRENT_DOWNLOADS = 10;
 const CHUNK_SIZE = 15;
+const MAX_SIZE_MB = 500; // Maximum size in MB
 const TEMP_DIR = path.join(__dirname, 'temp');
 
 // Ensure temp directory exists
@@ -56,19 +57,31 @@ app.post('/api/extract', async (req, res) => {
         const visitedAssets = new Set();
         const urlQueue = [targetUrl];
 
+        let totalSize = 0;
+
         while (urlQueue.length > 0) {
             const chunk = urlQueue.splice(0, CHUNK_SIZE);
             await Promise.all(
                 chunk.map(async (currentUrl) => {
                     if (!visitedUrls.has(currentUrl)) {
                         visitedUrls.add(currentUrl);
-                        await downloadPage(currentUrl, baseUrl, baseHost, tempDir, visitedUrls, visitedAssets, urlQueue);
+                        const pageSize = await downloadPage(currentUrl, baseUrl, baseHost, tempDir, visitedUrls, visitedAssets, urlQueue);
+                        totalSize += pageSize;
+
+                        if (totalSize > MAX_SIZE_MB * 1024 * 1024) {
+                            throw new Error(`Site is too large (exceeds ${MAX_SIZE_MB}MB)`);
+                        }
                     }
                 })
             );
         }
 
         console.log('Creating ZIP archive...');
+
+        // Set headers for chunked transfer
+        res.setHeader('Transfer-Encoding', 'chunked');
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', 'attachment; filename=webflow-site.zip');
 
         const archive = archiver('zip', {
             zlib: { level: 9 },
@@ -83,7 +96,11 @@ app.post('/api/extract', async (req, res) => {
             throw err;
         });
 
-        res.attachment('webflow-site.zip');
+        // Monitor archive progress
+        archive.on('progress', (progress) => {
+            console.log('Archive progress:', Math.round(progress.entries.processed / progress.entries.total * 100) + '%');
+        });
+
         archive.pipe(res);
         archive.directory(tempDir, false);
         await archive.finalize();
@@ -92,10 +109,12 @@ app.post('/api/extract', async (req, res) => {
 
     } catch (error) {
         console.error('Extraction error:', error);
-        res.status(500).json({
-            error: 'Extraction failed',
-            message: error.message
-        });
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: 'Extraction failed',
+                message: error.message
+            });
+        }
     } finally {
         if (tempDir && fs.existsSync(tempDir)) {
             try {
@@ -118,6 +137,8 @@ async function downloadPage(url, baseUrl, baseHost, tempDir, visitedUrls, visite
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
         });
+
+        let pageSize = Buffer.byteLength(html);
 
         const $ = cheerio.load(html);
         const localFilePath = getLocalFilePath(url, baseUrl, tempDir);
@@ -145,7 +166,7 @@ async function downloadPage(url, baseUrl, baseHost, tempDir, visitedUrls, visite
 
         for (let i = 0; i < assets.length; i += MAX_CONCURRENT_DOWNLOADS) {
             const chunk = assets.slice(i, i + MAX_CONCURRENT_DOWNLOADS);
-            await Promise.all(
+            const assetSizes = await Promise.all(
                 chunk.map(async ({ url: assetUrl, element, attr }) => {
                     if (!visitedAssets.has(assetUrl)) {
                         visitedAssets.add(assetUrl);
@@ -155,15 +176,20 @@ async function downloadPage(url, baseUrl, baseHost, tempDir, visitedUrls, visite
                                 ? path.join(tempDir, assetUrlObj.pathname)
                                 : path.join(tempDir, 'assets', assetUrlObj.host, assetUrlObj.pathname);
 
-                            await downloadAsset(assetUrl, assetPath);
+                            const assetSize = await downloadAsset(assetUrl, assetPath);
                             const relativeAssetPath = path.relative(pageDir, assetPath).replace(/\\/g, '/');
                             element.attribs[attr] = encodeURI(relativeAssetPath);
+                            return assetSize;
                         } catch (error) {
                             console.error(`Failed to download asset: ${assetUrl}`, error);
+                            return 0;
                         }
                     }
+                    return 0;
                 })
             );
+            
+            pageSize += assetSizes.reduce((a, b) => a + b, 0);
         }
 
         $('a[href]').each((i, el) => {
@@ -193,8 +219,10 @@ async function downloadPage(url, baseUrl, baseHost, tempDir, visitedUrls, visite
         fs.mkdirSync(pageDir, { recursive: true });
         fs.writeFileSync(localFilePath, $.html(), 'utf-8');
 
+        return pageSize;
     } catch (error) {
         console.error(`Failed to download page ${url}:`, error);
+        return 0;
     }
 }
 
@@ -210,14 +238,20 @@ async function downloadAsset(url, filePath, retries = 3) {
                 }
             });
 
+            const assetSize = response.data.length;
+            if (assetSize > MAX_SIZE_MB * 1024 * 1024) {
+                throw new Error(`Asset size exceeds ${MAX_SIZE_MB}MB limit`);
+            }
+
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, response.data);
-            return;
+            return assetSize;
         } catch (error) {
             if (i === retries - 1) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
     }
+    return 0;
 }
 
 function getLocalFilePath(url, baseUrl, tempDir) {
@@ -272,5 +306,4 @@ app.listen(PORT, () => {
     console.log(`Temp directory: ${TEMP_DIR}`);
 });
 
-// Export for testing
 module.exports = app;
