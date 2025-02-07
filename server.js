@@ -10,7 +10,13 @@ const cors = require('cors');
 const app = express();
 app.use(express.json());
 // Update CORS configuration
-app.use(cors({ origin: "https://webflow-downloader.webflow.io" }));
+app.use(cors({
+    origin: '*',  // Allow all origins for now
+    methods: ['POST', 'GET', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition', 'Content-Type'],
+    credentials: false  // Changed to false
+}));
 
 // Add OPTIONS handling
 app.options('/api/extract', (req, res) => {
