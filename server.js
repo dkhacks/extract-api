@@ -9,7 +9,17 @@ const cors = require('cors');
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+// Update CORS configuration
+app.use(cors({
+    origin: [
+        'https://webflow-downloader.webflow.io/',  // Your Webflow domain
+        'http://localhost:3000'  // For local testing
+    ],
+    methods: ['POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+    credentials: true
+}));
+
 
 
 // Constants
